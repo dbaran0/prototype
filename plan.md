@@ -17,7 +17,7 @@ only for judgement.** Keep it small, clean and explainable — no speculative ab
 | System 2 model | `openai/gpt-6-luna` via OpenRouter (`AGENT_MODEL`) |
 | System 1 model | `~typesafe/jev-latest` via OpenRouter Decisions API (`CLASSIFIER_MODEL`) |
 | Fake mode | `LLM_MODE=fake`: rule-based Pydantic AI `FunctionModel` for the agent + keyword classifier for Jev. No key, no network |
-| Routing | `DECIDER=jev_first` (default) or `agent`; `JEV_MIN_CONFIDENCE=0.8` |
+| Routing | `DECIDER=agent` (default, per the brief) or `jev_first` (opt-in); `JEV_MIN_CONFIDENCE=0.8` — changed after review |
 | State | Temporal only (workflow query). No database |
 | Helpdesk | In-process fake class in the worker, random transient failures (`HELPDESK_FAILURE_RATE`), in-memory idempotency store |
 | Approval | Temporal **Update** with validator → API answers 404 / 409 / 200 synchronously |

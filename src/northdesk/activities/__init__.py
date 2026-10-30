@@ -43,7 +43,8 @@ def classifier() -> Classifier:
 
 @cache
 def helpdesk() -> FakeHelpdesk:
-    return FakeHelpdesk(failure_rate=get_settings().helpdesk_failure_rate)
+    settings = get_settings()
+    return FakeHelpdesk(settings.helpdesk_store, failure_rate=settings.helpdesk_failure_rate)
 
 
 @activity.defn
@@ -70,12 +71,17 @@ async def classify_ticket(request: ClassifyInput) -> Triage:
 
 @activity.defn
 async def execute_action(request: ActionRequest) -> ActionResult:
+    return perform_action(helpdesk(), request)
+
+
+def perform_action(desk: FakeHelpdesk, request: ActionRequest) -> ActionResult:
+    """Body of execute_action, with the Helpdesk passed in so tests can use their own."""
     ids = _ids(request.ticket_id)
     # One key per workflow and action: a retried activity hits the same key and is not done twice.
     key = f"{ids['workflow_id']}:{request.decision.action.type}"
     log.info("calling helpdesk", extra={**ids, "action": request.decision.action.type})
     try:
-        result = helpdesk().perform(key, request.ticket_id, request.decision.action)
+        result = desk.perform(key, request.ticket_id, request.decision.action)
     except HelpdeskError as exc:
         raise ApplicationError(str(exc), type="HelpdeskError", non_retryable=True) from exc
     log.info("helpdesk done", extra={**ids, "reference": result.reference})

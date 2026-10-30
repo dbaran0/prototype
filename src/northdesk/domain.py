@@ -14,8 +14,9 @@ Priority = Literal["low", "normal", "high", "urgent"]
 
 
 class Ticket(BaseModel):
-    ticket_id: str = Field(min_length=1, max_length=64)
-    customer_id: str = Field(min_length=1, max_length=64)
+    # URL-safe, because the ticket ID is also the workflow ID and part of the API paths.
+    ticket_id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+    customer_id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
     subject: str = Field(max_length=500)
     body: str = Field(max_length=10_000)
 
@@ -53,7 +54,7 @@ class Reply(BaseModel):
 class Refund(BaseModel):
     type: Literal["refund"] = "refund"
     invoice_id: str
-    amount_eur: float
+    amount_eur: float = Field(allow_inf_nan=False)
 
 
 class Escalate(BaseModel):
@@ -116,7 +117,7 @@ class Triage(BaseModel):
 
 
 class WorkflowOptions(BaseModel):
-    decider: Literal["jev_first", "agent"] = "jev_first"
+    decider: Literal["agent", "jev_first"] = "agent"
     jev_min_confidence: float = 0.8
     approval_timeout: timedelta = timedelta(hours=24)
 

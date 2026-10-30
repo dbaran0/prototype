@@ -2,6 +2,8 @@
 
 from northdesk.domain import Close, Decision, Escalate, Reply, TicketContext, Triage
 
+QUESTIONS = ("category", "priority", "action", "article")
+
 # Jev only picks from fixed lists. Refunds need an invoice and an amount checked against the
 # customer's billing, so they always go to the agent (and then to a human for approval).
 JEV_ACTIONS = ("reply", "escalate", "close")
@@ -10,6 +12,9 @@ JEV_ACTIONS = ("reply", "escalate", "close")
 def decision_from_triage(triage: Triage, context: TicketContext, min_confidence: float) -> tuple[Decision | None, str]:
     """Return (decision, why). The decision is None when the agent has to decide."""
     answers = triage.answers
+    missing = [q for q in QUESTIONS if q not in answers]
+    if missing:
+        return None, f"Jev answers incomplete: {', '.join(missing)}"
     action = answers["action"].choice
     needed = ["category", "priority", "action"] + (["article"] if action == "reply" else [])
     low = [f"{q} {answers[q].confidence:.2f}" for q in needed if answers[q].confidence < min_confidence]

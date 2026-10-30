@@ -12,5 +12,10 @@ from temporalio.testing import WorkflowEnvironment  # noqa: E402
 @pytest.fixture(scope="session")
 async def env():
     # Temporal's in-memory test server; time skipping makes the 24h approval wait instant.
-    async with await WorkflowEnvironment.start_time_skipping(plugins=[PydanticAIPlugin()]) as env:
+    # The SDK downloads the test server once and caches it. Set TEMPORAL_TEST_SERVER_PATH to use a
+    # binary you already have, so tests run with no network at all.
+    existing = os.environ.get("TEMPORAL_TEST_SERVER_PATH")
+    async with await WorkflowEnvironment.start_time_skipping(
+        plugins=[PydanticAIPlugin()], test_server_existing_path=existing
+    ) as env:
         yield env

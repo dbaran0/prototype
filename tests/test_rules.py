@@ -42,6 +42,7 @@ def test_valid_refund_passes():
         (Refund(invoice_id="INV-9999", amount_eur=10), "C-100", "does not belong"),
         (Refund(invoice_id="INV-4001", amount_eur=49), "C-400", "is overdue"),
         (Refund(invoice_id="INV-1001", amount_eur=0), "C-100", "must be positive"),
+        (Refund.model_construct(invoice_id="INV-1001", amount_eur=float("nan")), "C-100", "must be a finite number"),
     ],
 )
 def test_invalid_refunds_are_rejected(refund, customer, expected):
@@ -106,3 +107,11 @@ def test_reply_without_article_goes_to_the_agent():
     decision, why = decision_from_triage(triage(article="none"), context("C-200"), min_confidence=0.8)
     assert decision is None
     assert "no matching KB article" in why
+
+
+def test_incomplete_jev_answers_go_to_the_agent():
+    partial = triage()
+    del partial.answers["action"]
+    decision, why = decision_from_triage(partial, context("C-200"), min_confidence=0.8)
+    assert decision is None
+    assert why == "Jev answers incomplete: action"

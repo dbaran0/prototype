@@ -4,6 +4,7 @@ Jev answers several fixed-choice questions about one ticket in a single call and
 confidence for each answer. It never writes text and never calls tools.
 """
 
+import math
 import re
 from typing import Protocol
 
@@ -77,15 +78,19 @@ def build_questions(context: TicketContext) -> dict:
 
 
 class JevClassifier:
-    def __init__(self, api_key: str, model: str, timeout: float = 10.0) -> None:
+    def __init__(
+        self, api_key: str, model: str, timeout: float = 10.0, transport: httpx.AsyncBaseTransport | None = None
+    ) -> None:
         self._headers = {"Authorization": f"Bearer {api_key}"}
         self._model = model
         self._timeout = timeout
+        self._transport = transport
 
     async def classify(self, ticket: Ticket, context: TicketContext) -> Triage:
-        body = {"model": self._model, "state": build_state(ticket, context), "questions": build_questions(context)}
+        questions = build_questions(context)
+        body = {"model": self._model, "state": build_state(ticket, context), "questions": questions}
         try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
+            async with httpx.AsyncClient(timeout=self._timeout, transport=self._transport) as client:
                 response = await client.post(DECISIONS_URL, json=body, headers=self._headers)
         except httpx.TransportError as exc:
             raise TransientClassifierError(f"Jev request failed: {exc}") from exc
@@ -94,11 +99,29 @@ class JevClassifier:
         if response.status_code >= 400:
             raise ClassifierError(f"Jev returned {response.status_code}: {response.text[:200]}")
         data = response.json()
-        answers = {
-            name: JevAnswer(choice=a["choice"], confidence=a.get("confidence", 0.0))
-            for name, a in data["answers"].items()
-        }
-        return Triage(model=data["model"], answers=answers)
+        return Triage(model=data.get("model", self._model), answers=_parse_answers(data.get("answers"), questions))
+
+
+def _parse_answers(raw: object, questions: dict) -> dict[str, JevAnswer]:
+    """Accept only a complete answer set: every question, a listed option, a confidence in [0, 1].
+
+    Anything else is a permanent error, so the workflow hands the ticket to the agent.
+    """
+    if not isinstance(raw, dict):
+        raise ClassifierError("Jev response has no answers")
+    missing = [q for q in questions if q not in raw]
+    if missing:
+        raise ClassifierError(f"Jev response is missing answers: {', '.join(missing)}")
+    answers = {}
+    for name, spec in questions.items():
+        answer = raw[name] if isinstance(raw[name], dict) else {}
+        choice, confidence = answer.get("choice"), answer.get("confidence")
+        if choice not in spec["criteria"]:
+            raise ClassifierError(f"Jev answer {name}={choice!r} is not an option")
+        if not isinstance(confidence, int | float) or not math.isfinite(confidence) or not 0 <= confidence <= 1:
+            raise ClassifierError(f"Jev answer {name} has an invalid confidence: {confidence!r}")
+        answers[name] = JevAnswer(choice=choice, confidence=confidence)
+    return answers
 
 
 # Keyword rules for the fake: (pattern, category, priority, action, article, confidence).

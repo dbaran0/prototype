@@ -1,7 +1,8 @@
 """Workflow tests on Temporal's time-skipping test server.
 
-Our activities are fakes (tests/fakes.py); the agent runs through its real Temporal activities
-with the offline rule-based model, so the whole loop (tool calls included) is exercised.
+All our activities are fakes (tests/fakes.py). The agent's model and tool activities are generated
+by Pydantic AI, so instead of replacing them the agent runs on the offline rule-based model: the
+whole loop, tool calls included, is exercised without a network.
 """
 
 import asyncio
@@ -13,7 +14,6 @@ from pathlib import Path
 import pytest
 from temporalio.client import WorkflowFailureError, WorkflowHandle, WorkflowUpdateFailedError
 
-from northdesk.activities import load_context
 from northdesk.domain import Approval, Ticket, TicketState, TicketWorkflowInput, WorkflowOptions
 from northdesk.services.helpdesk import FakeHelpdesk
 from northdesk.worker import build_worker
@@ -35,7 +35,7 @@ async def stop_workers():
 
 async def start(env, fakes: FakeActivities, ticket_id: str, **options) -> WorkflowHandle:
     queue = f"q-{uuid.uuid4()}"
-    worker = build_worker(env.client, queue, activities=[load_context, fakes.classify_ticket, fakes.execute_action])
+    worker = build_worker(env.client, queue, activities=fakes.all)
     _workers.append(asyncio.create_task(worker.run()))
     return await env.client.start_workflow(
         TicketWorkflow.run,
@@ -54,9 +54,19 @@ async def wait_for_step(handle: WorkflowHandle, step: str) -> TicketState:
     raise AssertionError(f"never reached {step}, last: {state.step}")
 
 
-async def test_password_ticket_is_answered_by_jev(env):
-    fakes = FakeActivities()
-    state = await (await start(env, fakes, "T-1")).result()
+async def test_password_ticket_is_answered_by_the_agent_by_default(env):
+    state = await (await start(env, FakeActivities(), "T-1")).result()
+
+    assert state.step == "done"
+    assert state.triage is None  # Jev is opt-in (DECIDER=jev_first)
+    assert state.decision.decided_by == "agent"
+    assert state.decision.action.type == "reply"
+    assert state.decision.action.article_ids == ["KB-1"]
+    assert state.result.action == "reply"
+
+
+async def test_password_ticket_is_answered_by_jev_when_jev_first(env):
+    state = await (await start(env, FakeActivities(), "T-1", decider="jev_first")).result()
 
     assert state.step == "done"
     assert state.decision.decided_by == "jev"
@@ -68,11 +78,11 @@ async def test_password_ticket_is_answered_by_jev(env):
 async def test_refund_approved_is_issued_once_even_if_the_response_is_lost(env):
     # Second random draw fails *after* the refund was applied, so the activity is retried.
     fakes = FakeActivities(helpdesk=FakeHelpdesk(failure_rate=0.5, rng=ScriptedRandom(0.9, 0.0)))
-    handle = await start(env, fakes, "T-2")
+    handle = await start(env, fakes, "T-2", decider="jev_first")
 
     waiting = await wait_for_step(handle, "awaiting_approval")
     assert waiting.decision.action.type == "refund"
-    assert waiting.decision.decided_by == "agent"  # Jev never decides refunds
+    assert waiting.decision.decided_by == "agent"  # even with Jev first, Jev never decides refunds
     assert waiting.decision.action.amount_eur == 49.0
 
     await handle.execute_update(TicketWorkflow.approve, Approval(approved=True, approver="alice"))
@@ -81,7 +91,7 @@ async def test_refund_approved_is_issued_once_even_if_the_response_is_lost(env):
     assert state.step == "done"
     assert state.result.action == "refund"
     assert fakes.helpdesk_attempts == 2
-    assert len(fakes.helpdesk.refunds) == 1
+    assert fakes.helpdesk.count("refund") == 1
 
 
 async def test_refund_without_approval_for_24h_is_escalated(env):
@@ -93,7 +103,7 @@ async def test_refund_without_approval_for_24h_is_escalated(env):
 
     assert state.decision.action.type == "escalate"
     assert "not approved" in state.decision.action.reason
-    assert fakes.helpdesk.refunds == []
+    assert fakes.helpdesk.count("refund") == 0
 
 
 async def test_rejected_refund_is_closed(env):
@@ -148,15 +158,17 @@ async def test_unknown_customer_is_escalated_without_any_model(env):
 
 
 async def test_low_jev_confidence_hands_over_to_the_agent(env):
-    state = await (await start(env, FakeActivities(confidence=0.3), "T-1", jev_min_confidence=0.8)).result()
+    state = await (
+        await start(env, FakeActivities(confidence=0.3), "T-1", decider="jev_first", jev_min_confidence=0.8)
+    ).result()
 
     assert state.route.startswith("agent: Jev confidence below 0.8")
     assert state.decision.decided_by == "agent"
     assert state.decision.action.type == "reply"
 
 
-async def test_agent_only_mode_skips_jev(env):
-    state = await (await start(env, FakeActivities(), "T-3", decider="agent")).result()
+async def test_agent_mode_decides_outage_without_jev(env):
+    state = await (await start(env, FakeActivities(), "T-3")).result()
 
     assert state.triage is None
     assert state.decision.decided_by == "agent"
@@ -173,3 +185,33 @@ async def test_approval_is_refused_when_not_waiting(env):
         await handle.execute_update(TicketWorkflow.approve, Approval(approved=True, approver="alice"))
     assert "not waiting for approval" in str(error.value.cause)
     await handle.terminate()
+
+
+async def test_jev_error_falls_back_to_the_agent(env):
+    fakes = FakeActivities(classifier_error="Jev answer is missing 'action'")
+    state = await (await start(env, fakes, "T-1", decider="jev_first")).result()
+
+    assert state.route.startswith("agent: Jev unavailable")
+    assert state.decision.decided_by == "agent"
+    assert state.step == "done"
+
+
+async def test_context_failure_is_visible_in_the_state(env):
+    handle = await start(env, FakeActivities(context_fails=True), "T-1")
+
+    with pytest.raises(WorkflowFailureError):
+        await handle.result()
+    state = await handle.query(TicketWorkflow.state)
+    assert state.step == "failed"
+    assert "Could not load customer data" in state.error
+
+
+async def test_permanent_helpdesk_error_is_not_retried(env):
+    fakes = FakeActivities(helpdesk=FakeHelpdesk(fail_permanently=True))
+    handle = await start(env, fakes, "T-5")
+
+    with pytest.raises(WorkflowFailureError):
+        await handle.result()
+    state = await handle.query(TicketWorkflow.state)
+    assert state.step == "failed"
+    assert fakes.helpdesk_attempts == 1

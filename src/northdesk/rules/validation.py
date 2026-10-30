@@ -4,6 +4,8 @@ Whatever the ticket text says, only decisions that pass these checks are carried
 Anything else becomes an escalation to a person.
 """
 
+import math
+
 from northdesk.domain import (
     ACTIONS,
     CATEGORIES,
@@ -54,6 +56,8 @@ def _check_refund(refund: Refund, context: TicketContext) -> list[str]:
     invoice = next((i for i in context.invoices if i.invoice_id == refund.invoice_id), None)
     if invoice is None or invoice.customer_id != customer_id:
         return [f"invoice {refund.invoice_id} does not belong to customer {customer_id}"]
+    if not math.isfinite(refund.amount_eur):
+        return ["refund amount must be a finite number"]
     violations = []
     if invoice.status != "paid":
         violations.append(f"invoice {invoice.invoice_id} is {invoice.status}, only paid invoices can be refunded")

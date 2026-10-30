@@ -5,8 +5,8 @@ import uuid
 
 import httpx
 import pytest
+from temporalio.service import RPCError, RPCStatusCode
 
-from northdesk.activities import load_context
 from northdesk.api.app import create_app
 from northdesk.config import Settings
 from northdesk.worker import build_worker
@@ -17,7 +17,7 @@ from tests.fakes import FakeActivities
 async def api(env):
     queue = f"api-{uuid.uuid4()}"
     fakes = FakeActivities()
-    worker = build_worker(env.client, queue, activities=[load_context, fakes.classify_ticket, fakes.execute_action])
+    worker = build_worker(env.client, queue, activities=fakes.all)
     async with worker:
         app = create_app(client=env.client, settings=Settings(task_queue=queue, _env_file=None))
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
@@ -79,3 +79,45 @@ async def test_approval_errors(api):
 async def test_invalid_ticket_is_rejected(api):
     response = await api.post("/tickets", json={"ticket_id": "T-x"})
     assert response.status_code == 422
+
+
+async def test_ticket_id_must_be_url_safe(api):
+    response = await api.post("/tickets", json=ticket("a/b", "C-200", "Hi", "Hello"))
+    assert response.status_code == 422
+
+
+class TemporalDown:
+    """A Temporal client whose every call fails as if the server were unreachable."""
+
+    def _fail(self, *args, **kwargs):
+        raise RPCError("connection refused", RPCStatusCode.UNAVAILABLE, b"")
+
+    async def start_workflow(self, *args, **kwargs):
+        self._fail()
+
+    def get_workflow_handle(self, workflow_id):
+        return self
+
+    async def query(self, *args, **kwargs):
+        self._fail()
+
+    async def execute_update(self, *args, **kwargs):
+        self._fail()
+
+    async def describe(self):
+        self._fail()
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "body"),
+    [
+        ("POST", "/tickets", ticket("T-1", "C-200", "Hi", "Hello")),
+        ("GET", "/tickets/T-1", None),
+        ("POST", "/tickets/T-1/approval", {"approved": True, "approver": "alice"}),
+    ],
+)
+async def test_temporal_outage_is_a_502(method, path, body):
+    app = create_app(client=TemporalDown(), settings=Settings(_env_file=None))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.request(method, path, json=body)
+    assert response.status_code == 502

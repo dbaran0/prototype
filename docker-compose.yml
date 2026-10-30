@@ -20,6 +20,11 @@ services:
         required: false
     environment:
       TEMPORAL_ADDRESS: temporal:7233
+      # Completed Helpdesk actions live on a volume, so they survive worker restarts and are
+      # shared by every worker replica (docker compose up --scale worker=3).
+      HELPDESK_STORE: /data/helpdesk.sqlite3
+    volumes:
+      - helpdesk-data:/data
     depends_on:
       temporal:
         condition: service_healthy
@@ -37,3 +42,6 @@ services:
     depends_on:
       temporal:
         condition: service_healthy
+
+volumes:
+  helpdesk-data:

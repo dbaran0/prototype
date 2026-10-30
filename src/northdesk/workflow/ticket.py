@@ -4,6 +4,7 @@ Workflow code only orchestrates and keeps state; all I/O happens in activities.
 """
 
 from datetime import timedelta
+from typing import NoReturn
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
@@ -55,9 +56,12 @@ class TicketWorkflow(PydanticAIWorkflow):
         self._log("ticket received", decider=options.decider)
 
         self._step("loading_context")
-        context = await workflow.execute_activity(
-            load_context, ticket, start_to_close_timeout=timedelta(seconds=10), retry_policy=QUICK
-        )
+        try:
+            context = await workflow.execute_activity(
+                load_context, ticket, start_to_close_timeout=timedelta(seconds=10), retry_policy=QUICK
+            )
+        except ActivityError as exc:
+            self._fail(f"Could not load customer data: {exc.cause or exc}", exc)
 
         if context.customer is None:
             # Deterministic precheck: no model is asked about a customer we don't know.
@@ -89,9 +93,7 @@ class TicketWorkflow(PydanticAIWorkflow):
                 retry_policy=HELPDESK_RETRY,
             )
         except ActivityError as exc:
-            self._state.error = f"Helpdesk action failed: {exc.cause or exc}"
-            self._step("failed")
-            raise ApplicationError(self._state.error, non_retryable=True) from exc
+            self._fail(f"Helpdesk action failed: {exc.cause or exc}", exc)
 
         self._step("done")
         self._log("ticket done", action=self._state.decision.action.type, decided_by=self._state.decision.decided_by)
@@ -167,6 +169,12 @@ class TicketWorkflow(PydanticAIWorkflow):
     def _check_approval(self, approval: Approval) -> None:
         if self._state.step != "awaiting_approval" or self._state.approval is not None:
             raise ValueError(f"Ticket is not waiting for approval (step: {self._state.step})")
+
+    def _fail(self, error: str, cause: Exception) -> NoReturn:
+        """End the workflow as failed, keeping the reason readable through the state query."""
+        self._state.error = error
+        self._step("failed")
+        raise ApplicationError(error, non_retryable=True) from cause
 
     def _step(self, step: Step) -> None:
         self._state.step = step

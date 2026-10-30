@@ -15,13 +15,15 @@ class Settings(BaseSettings):
     agent_model: str = "openai/gpt-6-luna"
     classifier_model: str = "~typesafe/jev-latest"
 
-    # "jev_first": Jev decides when confident, the agent handles the rest.
-    # "agent": the agent decides every ticket (Jev is not called).
-    decider: Literal["jev_first", "agent"] = "jev_first"
+    # "agent" (default): the tool-calling agent decides every ticket.
+    # "jev_first" (opt-in): Jev decides when confident, the agent handles the rest.
+    decider: Literal["agent", "jev_first"] = "agent"
     jev_min_confidence: float = 0.8
     approval_timeout_seconds: int = 24 * 60 * 60
 
     helpdesk_failure_rate: float = 0.2
+    # SQLite file with completed Helpdesk actions; shared by all workers so retries are never doubled.
+    helpdesk_store: str = "helpdesk.sqlite3"
 
     temporal_address: str = "localhost:7233"
     temporal_namespace: str = "default"
