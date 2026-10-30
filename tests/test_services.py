@@ -3,14 +3,13 @@
 import httpx
 import pytest
 
-from northdesk import data
-from northdesk.domain import Refund, Ticket, TicketContext
+from northdesk.domain import Refund, Ticket
 from northdesk.services.classifier import ClassifierError, JevClassifier, build_questions
 from northdesk.services.helpdesk import FakeHelpdesk, TransientHelpdeskError
-from tests.fakes import ScriptedRandom
+from tests.fakes import ScriptedRandom, context
 
 TICKET = Ticket(ticket_id="T-1", customer_id="C-200", subject="Can't log in", body="Forgot password")
-CONTEXT = TicketContext(customer=data.get_customer("C-200"), invoices=[], kb_articles=data.kb_articles())
+CONTEXT = context("C-200")
 
 
 def jev_returning(answers: dict) -> JevClassifier:

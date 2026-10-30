@@ -1,16 +1,15 @@
 """Domain types shared by the API, workflow, activities and rules. No framework imports."""
 
 from datetime import timedelta
-from typing import Annotated, Literal
+from typing import Annotated, Literal, get_args
 
 from pydantic import BaseModel, Field
 
-CATEGORIES = ("account", "billing", "technical", "other")
-PRIORITIES = ("low", "normal", "high", "urgent")
-ACTIONS = ("reply", "refund", "escalate", "close")
-
 Category = Literal["account", "billing", "technical", "other"]
 Priority = Literal["low", "normal", "high", "urgent"]
+CATEGORIES = get_args(Category)
+PRIORITIES = get_args(Priority)
+ACTIONS = ("reply", "refund", "escalate", "close")
 
 
 class Ticket(BaseModel):

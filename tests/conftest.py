@@ -8,6 +8,11 @@ import pytest  # noqa: E402
 from pydantic_ai.durable_exec.temporal import PydanticAIPlugin  # noqa: E402
 from temporalio.testing import WorkflowEnvironment  # noqa: E402
 
+from northdesk.config import Settings  # noqa: E402
+
+# Collection imports the API's default app; keep it from reading a developer's .env too.
+Settings.model_config["env_file"] = None
+
 
 @pytest.fixture(scope="session")
 async def env():

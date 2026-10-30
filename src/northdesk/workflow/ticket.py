@@ -143,17 +143,18 @@ class TicketWorkflow(PydanticAIWorkflow):
 
     async def _wait_for_approval(self, decision: Decision, timeout: timedelta) -> Decision:
         self._step("awaiting_approval")
+        decision = decision.model_copy(update={"decided_by": "approval"})
         try:
             await workflow.wait_condition(lambda: self._state.approval is not None, timeout=timeout)
         except TimeoutError:
             self._log("no approval in time, escalating")
-            reason = f"Refund not approved within {timeout}"
-            return decision.model_copy(update={"action": Escalate(reason=reason), "decided_by": "approval"})
+            decision.action = Escalate(reason=f"Refund not approved within {timeout}")
+            return decision
         approval = self._state.approval
-        if approval.approved:
-            return decision.model_copy(update={"decided_by": "approval"})
-        reason = f"Refund rejected by {approval.approver}" + (f": {approval.comment}" if approval.comment else "")
-        return decision.model_copy(update={"action": Close(reason=reason), "decided_by": "approval"})
+        if not approval.approved:
+            reason = f"Refund rejected by {approval.approver}" + (f": {approval.comment}" if approval.comment else "")
+            decision.action = Close(reason=reason)
+        return decision
 
     @workflow.query
     def state(self) -> TicketState:

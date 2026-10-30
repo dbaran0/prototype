@@ -54,22 +54,13 @@ async def wait_for_step(handle: WorkflowHandle, step: str) -> TicketState:
     raise AssertionError(f"never reached {step}, last: {state.step}")
 
 
-async def test_password_ticket_is_answered_by_the_agent_by_default(env):
-    state = await (await start(env, FakeActivities(), "T-1")).result()
+@pytest.mark.parametrize(("options", "decided_by"), [({}, "agent"), ({"decider": "jev_first"}, "jev")])
+async def test_password_ticket_is_answered(env, options, decided_by):
+    state = await (await start(env, FakeActivities(), "T-1", **options)).result()
 
     assert state.step == "done"
-    assert state.triage is None  # Jev is opt-in (DECIDER=jev_first)
-    assert state.decision.decided_by == "agent"
-    assert state.decision.action.type == "reply"
-    assert state.decision.action.article_ids == ["KB-1"]
-    assert state.result.action == "reply"
-
-
-async def test_password_ticket_is_answered_by_jev_when_jev_first(env):
-    state = await (await start(env, FakeActivities(), "T-1", decider="jev_first")).result()
-
-    assert state.step == "done"
-    assert state.decision.decided_by == "jev"
+    assert (state.triage is None) == (decided_by == "agent")
+    assert state.decision.decided_by == decided_by
     assert state.decision.action.type == "reply"
     assert state.decision.action.article_ids == ["KB-1"]
     assert state.result.action == "reply"
@@ -127,8 +118,9 @@ async def test_helpdesk_fails_then_succeeds_after_retry(env):
     assert state.decision.action.type == "close"
 
 
-async def test_helpdesk_down_fails_with_a_clear_reason(env):
-    fakes = FakeActivities(helpdesk=FakeHelpdesk(failure_rate=1.0))
+@pytest.mark.parametrize(("permanent", "attempts"), [(False, 6), (True, 1)])
+async def test_helpdesk_failure_has_a_clear_reason_and_bounded_retries(env, permanent, attempts):
+    fakes = FakeActivities(helpdesk=FakeHelpdesk(failure_rate=1.0, fail_permanently=permanent))
     handle = await start(env, fakes, "T-5")
 
     with pytest.raises(WorkflowFailureError):
@@ -136,7 +128,7 @@ async def test_helpdesk_down_fails_with_a_clear_reason(env):
     state = await handle.query(TicketWorkflow.state)
     assert state.step == "failed"
     assert "Helpdesk action failed" in state.error
-    assert fakes.helpdesk_attempts == 6  # retry limit, not forever
+    assert fakes.helpdesk_attempts == attempts
 
 
 async def test_prompt_injection_refund_is_escalated_by_the_rules(env):
@@ -204,14 +196,3 @@ async def test_context_failure_is_visible_in_the_state(env):
     state = await handle.query(TicketWorkflow.state)
     assert state.step == "failed"
     assert "Could not load customer data" in state.error
-
-
-async def test_permanent_helpdesk_error_is_not_retried(env):
-    fakes = FakeActivities(helpdesk=FakeHelpdesk(fail_permanently=True))
-    handle = await start(env, fakes, "T-5")
-
-    with pytest.raises(WorkflowFailureError):
-        await handle.result()
-    state = await handle.query(TicketWorkflow.state)
-    assert state.step == "failed"
-    assert fakes.helpdesk_attempts == 1

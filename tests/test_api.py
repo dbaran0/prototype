@@ -76,13 +76,11 @@ async def test_approval_errors(api):
     assert "already finished" in not_waiting.json()["detail"]
 
 
-async def test_invalid_ticket_is_rejected(api):
-    response = await api.post("/tickets", json={"ticket_id": "T-x"})
-    assert response.status_code == 422
-
-
-async def test_ticket_id_must_be_url_safe(api):
-    response = await api.post("/tickets", json=ticket("a/b", "C-200", "Hi", "Hello"))
+@pytest.mark.parametrize(
+    "body", [{"ticket_id": "T-x"}, ticket("a/b", "C-200", "Hi", "Hello")], ids=["missing", "unsafe-id"]
+)
+async def test_invalid_ticket_is_rejected(api, body):
+    response = await api.post("/tickets", json=body)
     assert response.status_code == 422
 
 

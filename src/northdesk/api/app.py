@@ -1,4 +1,4 @@
-"""HTTP API. It only starts, reads and signals workflows; it never decides anything itself."""
+"""HTTP API. It only starts, queries and updates workflows; it never decides anything itself."""
 
 import logging
 from contextlib import asynccontextmanager
@@ -40,9 +40,6 @@ def create_app(client: Client | None = None, settings: Settings | None = None) -
     app = FastAPI(title="Northdesk tickets", lifespan=lifespan)
     app.state.client = client
 
-    def temporal(request: Request) -> Client:
-        return request.app.state.client
-
     @app.exception_handler(RPCError)
     async def temporal_error(request: Request, exc: RPCError) -> JSONResponse:
         """Any Temporal error: 404 if the ticket doesn't exist, otherwise 502. Always logged with the IDs."""
@@ -63,7 +60,7 @@ def create_app(client: Client | None = None, settings: Settings | None = None) -
         )
         try:
             # The ticket ID is the workflow ID, and a used ID is never reused: one ticket, one run.
-            await temporal(request).start_workflow(
+            await request.app.state.client.start_workflow(
                 TicketWorkflow.run,
                 TicketWorkflowInput(ticket=ticket, options=options),
                 id=ids["workflow_id"],
@@ -80,12 +77,12 @@ def create_app(client: Client | None = None, settings: Settings | None = None) -
     @app.get("/tickets/{ticket_id}", response_model=TicketState)
     async def get_ticket(ticket_id: str, request: Request) -> TicketState:
         request.state.ids = {"ticket_id": ticket_id, "workflow_id": ticket_id}
-        return await temporal(request).get_workflow_handle(ticket_id).query(TicketWorkflow.state)
+        return await request.app.state.client.get_workflow_handle(ticket_id).query(TicketWorkflow.state)
 
     @app.post("/tickets/{ticket_id}/approval", response_model=TicketState)
     async def approve(ticket_id: str, approval: Approval, request: Request) -> TicketState:
         ids = request.state.ids = {"ticket_id": ticket_id, "workflow_id": ticket_id}
-        handle = temporal(request).get_workflow_handle(ticket_id)
+        handle = request.app.state.client.get_workflow_handle(ticket_id)
         try:
             state = await handle.execute_update(TicketWorkflow.approve, approval)
         except WorkflowUpdateFailedError as exc:

@@ -2,7 +2,6 @@
 
 import pytest
 
-from northdesk import data
 from northdesk.domain import (
     Close,
     Decision,
@@ -11,19 +10,11 @@ from northdesk.domain import (
     ProposedDecision,
     Refund,
     Reply,
-    TicketContext,
     Triage,
 )
 from northdesk.rules import check_decision, enforce
 from northdesk.rules.triage import decision_from_triage
-
-
-def context(customer_id: str) -> TicketContext:
-    return TicketContext(
-        customer=data.get_customer(customer_id),
-        invoices=data.get_invoices(customer_id),
-        kb_articles=data.kb_articles(),
-    )
+from tests.fakes import context
 
 
 def proposal(action, category="billing", priority="normal") -> ProposedDecision:
@@ -60,8 +51,9 @@ def test_reply_must_cite_known_articles_and_have_text():
     assert violations == ["reply message is empty", "reply cites unknown KB articles: KB-99"]
 
 
-def test_escalate_and_close_need_a_reason():
-    assert check_decision(proposal(Escalate(reason="")), context("C-200")) == ["escalate needs a reason"]
+@pytest.mark.parametrize("action", [Escalate(reason=""), Close(reason="")])
+def test_escalate_and_close_need_a_reason(action):
+    assert check_decision(proposal(action), context("C-200")) == [f"{action.type} needs a reason"]
 
 
 def test_enforce_turns_a_broken_decision_into_an_escalation():
@@ -91,22 +83,18 @@ def test_confident_jev_reply_uses_the_article_text():
     assert "Forgot password" in decision.action.message
 
 
-def test_low_confidence_goes_to_the_agent():
-    decision, why = decision_from_triage(triage(confidence=0.5), context("C-200"), min_confidence=0.8)
+@pytest.mark.parametrize(
+    ("answers", "customer", "reason"),
+    [
+        ({"confidence": 0.5}, "C-200", "Jev confidence below 0.8"),
+        ({"action": "refund"}, "C-100", "Jev chose 'refund', which only the agent may decide"),
+        ({"article": "none"}, "C-200", "Jev found no matching KB article"),
+    ],
+)
+def test_jev_hands_over_to_the_agent(answers, customer, reason):
+    decision, why = decision_from_triage(triage(**answers), context(customer), min_confidence=0.8)
     assert decision is None
-    assert why.startswith("Jev confidence below 0.8")
-
-
-def test_jev_never_decides_refunds():
-    decision, why = decision_from_triage(triage(action="refund"), context("C-100"), min_confidence=0.8)
-    assert decision is None
-    assert "only the agent" in why
-
-
-def test_reply_without_article_goes_to_the_agent():
-    decision, why = decision_from_triage(triage(article="none"), context("C-200"), min_confidence=0.8)
-    assert decision is None
-    assert "no matching KB article" in why
+    assert why.startswith(reason)
 
 
 def test_incomplete_jev_answers_go_to_the_agent():

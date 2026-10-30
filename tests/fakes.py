@@ -9,6 +9,14 @@ from northdesk.services.classifier import ClassifierError, FakeClassifier
 from northdesk.services.helpdesk import FakeHelpdesk
 
 
+def context(customer_id: str) -> TicketContext:
+    return TicketContext(
+        customer=data.get_customer(customer_id),
+        invoices=data.get_invoices(customer_id),
+        kb_articles=data.kb_articles(),
+    )
+
+
 class ScriptedRandom:
     """Stands in for random.Random: returns the given values in order, then never fails."""
 
@@ -37,9 +45,7 @@ class FakeActivities:
     async def load_context(self, ticket: Ticket) -> TicketContext:
         if self.context_fails:
             raise RuntimeError("customer database unavailable")
-        customer = data.get_customer(ticket.customer_id)
-        invoices = data.get_invoices(ticket.customer_id) if customer else []
-        return TicketContext(customer=customer, invoices=invoices, kb_articles=data.kb_articles())
+        return context(ticket.customer_id)
 
     @activity.defn(name="classify_ticket")
     async def classify_ticket(self, request: ClassifyInput) -> Triage:
