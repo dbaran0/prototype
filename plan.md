@@ -17,6 +17,7 @@ only for judgement.** Keep it small, clean and explainable — no speculative ab
 | System 2 model | `openai/gpt-6-luna` via OpenRouter (`AGENT_MODEL`) |
 | System 1 model | `~typesafe/jev-latest` via OpenRouter Decisions API (`CLASSIFIER_MODEL`) |
 | Fake mode | `LLM_MODE=fake`: rule-based Pydantic AI `FunctionModel` for the agent + keyword classifier for Jev. No key, no network |
+| Routing | `DECIDER=jev_first` (default) or `agent`; `JEV_MIN_CONFIDENCE=0.8` |
 | State | Temporal only (workflow query). No database |
 | Helpdesk | In-process fake class in the worker, random transient failures (`HELPDESK_FAILURE_RATE`), in-memory idempotency store |
 | Approval | Temporal **Update** with validator → API answers 404 / 409 / 200 synchronously |
@@ -45,15 +46,16 @@ POST /tickets ──► TicketWorkflow (id = ticket_id)
 
 Workflow state exposed by a query: `step`, `classification`, `decision`, `approval`, `result`, `error`.
 
-### Classification and confidence (System 1 → System 2)
+### Jev first, agent when needed (System 1 → System 2) — revised after the first plan
 
-- Jev answers two Choice questions (category, priority) and returns a confidence for each.
-- The agent's structured output always includes category and priority as well (same call it
-  makes anyway for the action — no extra request). The prompt shows Jev's suggestion.
-- Final category/priority: Jev's if both confidences ≥ `CLASSIFIER_MIN_CONFIDENCE`
-  (default 0.7), otherwise the agent's. The decision records `classified_by: jev | agent`
-  and the confidences.
-- If Jev is unavailable after its retries, fall back to the agent's classification (log it).
+- Jev answers four Choice questions in one call: category, priority, action, KB article,
+  each with a confidence.
+- Jev decides alone when every answer the decision needs is ≥ `JEV_MIN_CONFIDENCE` (0.8) and the
+  action is reply / escalate / close. Reply text is a template from the chosen KB article.
+- The agent (GPT-6 Luna, tools) decides when: any needed confidence is low, the action is a refund
+  (money always needs invoice reasoning), no KB article fits, or Jev is unavailable.
+- `DECIDER=agent` skips Jev entirely. `route` and `decided_by` in the state and the logs show which
+  path ran.
 
 ### Deterministic checks (code, not model)
 

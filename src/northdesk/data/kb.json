@@ -1,0 +1,6 @@
+[
+  {"article_id": "KB-1", "title": "Reset your password", "text": "Open the sign-in page, choose 'Forgot password' and follow the link we email you. The link works for 30 minutes."},
+  {"article_id": "KB-2", "title": "Invoices and refunds", "text": "Invoices are sent on the 1st of each month. If you were charged twice, we refund the extra charge after a member of our team checks it."},
+  {"article_id": "KB-3", "title": "Service status", "text": "Current outages are shown on status.northdesk.example. Enterprise customers can also call their account manager."},
+  {"article_id": "KB-4", "title": "Suspended accounts", "text": "Accounts are suspended when an invoice is overdue for more than 14 days. Pay the invoice to unlock the account."}
+]

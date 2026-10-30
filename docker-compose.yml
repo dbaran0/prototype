@@ -1,0 +1,39 @@
+services:
+  temporal:
+    image: temporalio/temporal:latest
+    # Dev server: in-memory, single binary, Web UI included. Fine locally, not for production.
+    command: ["server", "start-dev", "--ip", "0.0.0.0"]
+    ports:
+      - "7233:7233" # gRPC
+      - "8233:8233" # Web UI
+    healthcheck:
+      test: ["CMD", "temporal", "operator", "cluster", "health", "--address", "localhost:7233"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+  worker:
+    build: .
+    command: ["python", "-m", "northdesk.worker"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+    depends_on:
+      temporal:
+        condition: service_healthy
+
+  api:
+    build: .
+    command: ["uvicorn", "northdesk.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      temporal:
+        condition: service_healthy

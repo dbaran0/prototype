@@ -1,0 +1,39 @@
+[project]
+name = "northdesk"
+version = "0.1.0"
+description = "Agentic support ticket workflow with FastAPI, Temporal and Pydantic AI"
+authors = [
+    { name = "Dominik Baran", email = "baran.dominik98@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.162.0",
+    "httpx>=0.28.1",
+    "pydantic-ai-slim[openrouter,temporal]>=2.63.0",
+    "pydantic-settings>=2.16.2",
+    "temporalio>=1.35.0",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.28,<0.10.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+    "pytest-asyncio>=1.4.1",
+    "ruff>=0.17.3",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

@@ -1,0 +1,6 @@
+[
+  {"invoice_id": "INV-1001", "customer_id": "C-100", "month": "2026-09", "amount_eur": 49.0, "status": "paid"},
+  {"invoice_id": "INV-1002", "customer_id": "C-100", "month": "2026-09", "amount_eur": 49.0, "status": "paid"},
+  {"invoice_id": "INV-3001", "customer_id": "C-300", "month": "2026-09", "amount_eur": 990.0, "status": "paid"},
+  {"invoice_id": "INV-4001", "customer_id": "C-400", "month": "2026-08", "amount_eur": 49.0, "status": "overdue"}
+]
